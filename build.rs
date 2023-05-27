@@ -555,6 +555,29 @@ impl LinkingPreferences {
     }
 }
 
+fn get_llvm_cppflags() -> String {
+    let output = llvm_config("--cppflags");
+
+    // llvm-config includes cppflags from its own compilation with --cppflags that
+    // may not be relevant to us. In particularly annoying cases, these might
+    // include flags that aren't understood by the default compiler we're
+    // using. Unless requested otherwise, clean CFLAGS of options that are
+    // known to be possibly-harmful.
+    let no_clean = env::var_os(&*ENV_NO_CLEAN_CFLAGS).is_some();
+    if no_clean || target_env_is("msvc") {
+        // MSVC doesn't accept -W... options, so don't try to strip them and
+        // possibly strip something that should be retained. Also do nothing if
+        // the user requests it.
+        return output;
+    }
+
+    llvm_config("--cppflags")
+        .split(&[' ', '\n'][..])
+        .filter(|word| !word.starts_with("-W"))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 fn get_llvm_cflags() -> String {
     let output = llvm_config("--cflags");
 
@@ -596,6 +619,9 @@ fn main() {
     println!("cargo:rerun-if-env-changed={}", &*ENV_USE_DEBUG_MSVCRT);
     println!("cargo:rerun-if-env-changed={}", &*ENV_FORCE_FFI);
 
+    // Rebuild when cpp module changes
+    println!("cargo:rerun-if-changed=wrappers");
+
     if cfg!(feature = "no-llvm-linking") && cfg!(feature = "disable-alltargets-init") {
         // exit early as we don't need to do anything and llvm-config isn't needed at all
         return;
@@ -612,6 +638,15 @@ fn main() {
         cc::Build::new()
             .file("wrappers/target.c")
             .compile("targetwrappers");
+
+        std::env::set_var("CXXFLAGS", get_llvm_cppflags());
+        cc::Build::new()
+            .cpp(true)
+            .file("wrappers/assembly.cpp")
+            .flag("-std=c++17")
+            .flag("/std:c++17")
+            .flag("/MT")
+            .compile("assemblywrappers");
     }
 
     if cfg!(feature = "no-llvm-linking") {
