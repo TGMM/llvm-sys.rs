@@ -640,13 +640,22 @@ fn main() {
             .compile("targetwrappers");
 
         std::env::set_var("CXXFLAGS", get_llvm_cppflags());
-        cc::Build::new()
+
+        let mut assembly_wrapper_build = cc::Build::new();
+        assembly_wrapper_build
             .cpp(true)
-            .file("wrappers/assembly.cpp")
-            .flag("-std=c++17")
-            .flag("/std:c++17")
-            .flag("/MT")
-            .compile("assemblywrappers");
+            .file("wrappers/assembly.cpp");
+
+        if target_env_is("msvc") {
+            assembly_wrapper_build
+                .flag("/std:c++17")
+                .flag("/MT")
+                .compile("assemblywrappers");
+        } else {
+            assembly_wrapper_build.flag("-std=c++17");
+        }
+
+        assembly_wrapper_build.compile("assemblywrappers");
     }
 
     if cfg!(feature = "no-llvm-linking") {
